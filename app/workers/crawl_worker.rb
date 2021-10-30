@@ -91,7 +91,19 @@ class CrawlWorker < ApplicationController
       end
       response = conn3.get '/.well-known/nodeinfo'
       if response.status == 200 then
-        if response.headers['content-type'].include?("json") == true then
+        if response.headers['content-type'].include?("json") == false then
+
+            conn2 = Faraday.new(:url => ENV["SERVER_URL"]) do |builder|
+              builder.request  :json             # form-encode POST params
+              builder.adapter  Faraday.default_adapter  # make requests with Net::HTTP
+              builder.options[:open_timeout] = 10 # コネクションを開くまでに待つ最大秒数i
+              builder.options[:timeout] = 10      # データ読み込みまでに待つ最大秒数
+              builder.token_auth ENV["SERVER_TOKEN"]                  
+            end 
+            conn2.headers["Content-Type"] = "application/json"
+            obj = {"title" => ""}
+            res = conn2.put("/api/v1/sites/"+value["id"].to_s, obj.to_json)
+        else  
           hash2 = JSON.parse(response.body)
           uri = URI.parse(hash2["links"][0]["href"])
           p uri.path
