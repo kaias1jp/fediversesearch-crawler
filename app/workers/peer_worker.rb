@@ -10,6 +10,15 @@ class PeerWorker < ApplicationController
     if uri.include?("/") == true then
       return
     end
+    if uri.include?("gab.best") == true then
+      return
+    end
+    if uri.include?(".glaceon.social") == true then
+      return
+    end
+    if uri.include?(".activitypub-troll.cf") == true then
+      return
+    end
 
     #myip = Socket.ip_address_list.detect{|intf| intf.ipv4_private?}.ip_address
     conn = Faraday.new(:url => 'https://'+uri) do |faraday|
@@ -32,7 +41,7 @@ class PeerWorker < ApplicationController
     end
 
     hash.each{|value|
-      if (value.include?("@") == true || value.include?("/") == true) then
+      if (value.include?("@") == true || value.include?("/") == true || value.include?("gab.best") == true || value.include?(".glaceon.social") == true || value.include?(".activitypub-troll.cf") == true) then
         next
       end
 

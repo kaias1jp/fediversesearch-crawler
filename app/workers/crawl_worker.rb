@@ -39,10 +39,9 @@ class CrawlWorker < ApplicationController
 #      return
 #    end
 
-    if (uri.include?("@") == true || uri.include?("/") == true) then
+    if (uri.include?("@") == true || uri.include?("/") == true || uri.include?("gab.best") == true || uri.include?(".glaceon.social") == true || uri.include?(".activitypub-troll.cf") == true) then
       # uri format error
       p "illegal uri:"+uri
-      @obj = {"uri" => ""}
       conn2 = Faraday.new(:url => ENV["SERVER_URL"]) do |builder|
         builder.request  :json             # form-encode POST params
         builder.adapter  Faraday.default_adapter  # make requests with Net::HTTP
@@ -52,7 +51,7 @@ class CrawlWorker < ApplicationController
       end
       p "id:"+value["id"].to_s
       conn2.headers["Content-Type"] = "application/json"
-      res = conn2.put("/api/v1/sites/"+value["id"].to_s, @obj.to_json)
+      res = conn2.delete("/api/v1/sites/"+value["id"].to_s)
       return
     end
 
@@ -63,8 +62,23 @@ class CrawlWorker < ApplicationController
       begin
         address =  Resolv.getaddress(value["uri"])
         p "ip address:"+value["uri"]+":"+address
-      rescue
-        p "DNSerror"
+      rescue Resolv::ResolvError => e
+        p "resolv error"
+        p e.message
+        conn2 = Faraday.new(:url => ENV["SERVER_URL"]) do |builder|
+          builder.request  :json
+          builder.adapter  Faraday.default_adapter
+          builder.options[:open_timeout] = 10
+          builder.options[:timeout] = 10
+          builder.token_auth ENV["SERVER_TOKEN"]
+        end
+        p "id:"+value["id"].to_s
+        conn2.headers["Content-Type"] = "application/json"
+        res = conn2.delete("/api/v1/sites/"+value["id"].to_s)
+        return
+      rescue => e
+        p "DNS error"
+        p e.message
         @obj["dns_status"] = "ERROR"
         conn2 = Faraday.new(:url => ENV["SERVER_URL"]) do |builder|
           builder.request  :json             # form-encode POST params
@@ -76,21 +90,60 @@ class CrawlWorker < ApplicationController
         p value["id"]
         conn2.headers["Content-Type"] = "application/json"
         res = conn2.put("/api/v1/sites/"+value["id"].to_s, @obj.to_json)
-        p res
         return
       end
-
+      conn12 = Faraday.new(:url => ENV["SERVER_URL"]) do |builder|
+        builder.request  :json
+        builder.adapter  Faraday.default_adapter
+        builder.options[:open_timeout] = 60
+        builder.options[:timeout] = 60
+        builder.token_auth ENV["SERVER_TOKEN"]
+      end
+      conn12.headers["Content-Type"] = "application/json"
+      obj = {"dns_status"=>"NOERROR"}
+      res = conn12.put("/api/v1/sites/"+value["id"].to_s, obj.to_json)
+      p res
+      p "get nodeinfo" 
       # get nodeinfo
       conn3 = Faraday.new(:url => 'https://'+value["uri"]) do |faraday|
         faraday.response :logger                  # log requests to STDOUT
         faraday.adapter  Faraday.default_adapter  # make requests with Net::HTTP
-        faraday.options[:open_timeout] = 10
-        faraday.options[:timeout] = 10
+        faraday.options[:open_timeout] = 60
+        faraday.options[:timeout] = 60
         faraday.use FaradayMiddleware::FollowRedirects
         faraday.adapter :net_http
       end
-      response = conn3.get '/.well-known/nodeinfo'
-      if response.status == 200 then
+
+      begin
+        response = conn3.get '/.well-known/nodeinfo'
+        p response
+      rescue Faraday::ConnectionFailed, Faraday::SSLError => e
+        p e.message
+        conn2 = Faraday.new(:url => ENV["SERVER_URL"]) do |builder|
+          builder.request  :json
+          builder.adapter  Faraday.default_adapter
+          builder.options[:open_timeout] = 10
+          builder.options[:timeout] = 10
+          builder.token_auth ENV["SERVER_TOKEN"]
+        end
+        p "id:"+value["id"].to_s
+        conn2.headers["Content-Type"] = "application/json"
+        res = conn2.delete("/api/v1/sites/"+value["id"].to_s)
+        return
+      end
+      if response.status == 404 or response.status == 410 then
+        conn2 = Faraday.new(:url => ENV["SERVER_URL"]) do |builder|
+          builder.request  :json
+          builder.adapter  Faraday.default_adapter
+          builder.options[:open_timeout] = 10
+          builder.options[:timeout] = 10
+          builder.token_auth ENV["SERVER_TOKEN"]
+        end
+        p "id:"+value["id"].to_s
+        conn2.headers["Content-Type"] = "application/json"
+        res = conn2.delete("/api/v1/sites/"+value["id"].to_s)
+        return
+      elsif response.status == 200 then
         if response.headers['content-type'].include?("json") == false then
 
             conn2 = Faraday.new(:url => ENV["SERVER_URL"]) do |builder|
@@ -101,8 +154,7 @@ class CrawlWorker < ApplicationController
               builder.token_auth ENV["SERVER_TOKEN"]                  
             end 
             conn2.headers["Content-Type"] = "application/json"
-            obj = {"title" => ""}
-            res = conn2.put("/api/v1/sites/"+value["id"].to_s, obj.to_json)
+            res = conn2.delete("/api/v1/sites/"+value["id"].to_s)
         else  
           hash2 = JSON.parse(response.body)
           uri = URI.parse(hash2["links"][0]["href"])
@@ -110,8 +162,8 @@ class CrawlWorker < ApplicationController
           conn2 = Faraday.new(:url => 'https://'+uri.host+":"+uri.port.to_s) do |faraday|
             faraday.response :logger                  # log requests to STDOUT
             faraday.adapter  Faraday.default_adapter  # make requests with Net::HTTP
-            faraday.options[:open_timeout] = 10
-            faraday.options[:timeout] = 10
+            faraday.options[:open_timeout] = 60
+            faraday.options[:timeout] = 60
             faraday.use FaradayMiddleware::FollowRedirects
             faraday.adapter :net_http
           end
@@ -120,6 +172,13 @@ class CrawlWorker < ApplicationController
             if response.headers['content-type'].include?("json") == true then
               hash2 = JSON.parse(response.body)
               software_name = hash2["software"]["name"]
+              if hash2["metadata"] != nil then
+                if hash2["metadata"]["upstream"] != nil then
+                  if hash2["metadata"]["upstream"]["name"] != nil then
+                    software_name = hash2["metadata"]["upstream"]["name"]
+                  end
+                end
+              end
               p software_name
               software_id = softwares[software_name]
               p software_id
@@ -129,27 +188,36 @@ class CrawlWorker < ApplicationController
                 id = software_id
               end
 
+              total_user = hash2["usage"]["users"]["total"]
+              active_user = hash2["usage"]["users"]["activeMonth"]
+
               conn2 = Faraday.new(:url => ENV["SERVER_URL"]) do |builder|
                 builder.request  :json             # form-encode POST params
                 builder.adapter  Faraday.default_adapter  # make requests with Net::HTTP
-                builder.options[:open_timeout] = 10 # コネクションを開くまでに待つ最大秒数
-                builder.options[:timeout] = 10      # データ読み込みまでに待つ最大秒数
+                builder.options[:open_timeout] = 60 # コネクションを開くまでに待つ最大秒数
+                builder.options[:timeout] = 60      # データ読み込みまでに待つ最大秒数
                 builder.token_auth ENV["SERVER_TOKEN"]
               end
               conn2.headers["Content-Type"] = "application/json"
-              obj = {"software_id" => id}
+              obj = {"software_id" => id,
+              "total_user" => total_user,
+              "active_user" => active_user}
+              begin
               res = conn2.put("/api/v1/sites/"+value["id"].to_s, obj.to_json)
+              rescue => e
+                p e.message
+              end
             end
           end
         end
       end
-
+p "get instance data"
       # get instance data
       conn4 = Faraday.new(:url => 'https://'+value["uri"]) do |faraday|
         faraday.response :logger                  # log requests to STDOUT
         faraday.adapter  Faraday.default_adapter  # make requests with Net::HTTP
-        faraday.options[:open_timeout] = 10
-        faraday.options[:timeout] = 10
+        faraday.options[:open_timeout] = 60
+        faraday.options[:timeout] = 60
         faraday.use FaradayMiddleware::FollowRedirects
         faraday.adapter :net_http
       end
@@ -178,8 +246,8 @@ class CrawlWorker < ApplicationController
         conn3 = Faraday.new(:url => 'https://'+value["uri"]) do |faraday|
           faraday.response :logger                  # log requests to STDOUT
           faraday.adapter  Faraday.default_adapter  # make requests with Net::HTTP
-          faraday.options[:open_timeout] = 10
-          faraday.options[:timeout] = 10
+          faraday.options[:open_timeout] = 60
+          faraday.options[:timeout] = 60
           faraday.use FaradayMiddleware::FollowRedirects
           faraday.adapter :net_http
         end
@@ -211,8 +279,8 @@ class CrawlWorker < ApplicationController
         conn3 = Faraday.new(:url => 'https://'+value["uri"]) do |faraday|
          faraday.response :logger                  # log requests to STDOUT
           faraday.adapter  Faraday.default_adapter  # make requests with Net::HTTP
-          faraday.options[:open_timeout] = 10
-          faraday.options[:timeout] = 10
+          faraday.options[:open_timeout] = 60
+          faraday.options[:timeout] = 60
           faraday.use FaradayMiddleware::FollowRedirects
           faraday.adapter :net_http
         end
@@ -230,13 +298,14 @@ class CrawlWorker < ApplicationController
           @obj["registrations"] = hash2["openRegistrations"]
           @obj["thumbnail"] = hash2["iconUrl"]
           @obj["http_status"] = response.status
-        elsif response.status == 404 then
+        elsif response.status == 404 || response.status == 204 then
           misskey_url = ENV["MISSKEY_URL"].split
-          conn4 = Faraday.new(:url => misskey_url.sample) do |faraday|
+          misskey_url.delete(value['uri'])
+          conn4 = Faraday.new(:url => 'https://' + misskey_url.sample) do |faraday|
             faraday.response :logger                  # log requests to STDOUT
             faraday.adapter  Faraday.default_adapter  # make requests with Net::HTTP
-            faraday.options[:open_timeout] = 10
-            faraday.options[:timeout] = 10
+            faraday.options[:open_timeout] = 60
+            faraday.options[:timeout] = 60
             faraday.use FaradayMiddleware::FollowRedirects
             faraday.adapter :net_http
           end
@@ -273,12 +342,11 @@ class CrawlWorker < ApplicationController
         builder.token_auth ENV["SERVER_TOKEN"]
       end
       conn2.headers["Content-Type"] = "application/json"
-      @obj["dns_status"] = "NOERROR"
       res = conn2.put("/api/v1/sites/"+value["id"].to_s, @obj.to_json)
     rescue
     end
 
-    p "dounano"
+    p "crawl end"
 #    render json: { status: "SUCCESS" }
   end
 end
