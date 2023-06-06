@@ -39,6 +39,8 @@ class CrawlWorker < ApplicationController
 #      return
 #    end
 
+    @obj = {"last_confirmation_date" => Date.today}
+
     if (uri.include?("@") == true || uri.include?("/") == true || uri.include?("gab.best") == true || uri.include?(".glaceon.social") == true || uri.include?(".activitypub-troll.cf") == true) then
       # uri format error
       p "illegal uri:"+uri
@@ -51,11 +53,12 @@ class CrawlWorker < ApplicationController
       end
       p "id:"+value["id"].to_s
       conn2.headers["Content-Type"] = "application/json"
-      res = conn2.delete("/api/v1/sites/"+value["id"].to_s)
+      @obj["title"] = ""
+      res = conn2.put("/api/v1/sites/"+value["id"].to_s, @obj.to_json)
+      # res = conn2.delete("/api/v1/sites/"+value["id"].to_s)
       return
     end
 
-    @obj = {"last_confirmation_date" => Date.today}
     begin
       #DNSチェック
       p "uri:"+value["uri"]
@@ -74,7 +77,9 @@ class CrawlWorker < ApplicationController
         end
         p "id:"+value["id"].to_s
         conn2.headers["Content-Type"] = "application/json"
-        res = conn2.delete("/api/v1/sites/"+value["id"].to_s)
+        @obj["title"] = ""
+        res = conn2.put("/api/v1/sites/"+value["id"].to_s, @obj.to_json)
+        # res = conn2.delete("/api/v1/sites/"+value["id"].to_s)
         return
       rescue => e
         p "DNS error"
@@ -128,7 +133,9 @@ class CrawlWorker < ApplicationController
         end
         p "id:"+value["id"].to_s
         conn2.headers["Content-Type"] = "application/json"
-        res = conn2.delete("/api/v1/sites/"+value["id"].to_s)
+        @obj["title"] = ""
+        res = conn2.put("/api/v1/sites/"+value["id"].to_s, @obj.to_json)
+        # res = conn2.delete("/api/v1/sites/"+value["id"].to_s)
         return
       end
       if response.status == 404 or response.status == 410 then
@@ -141,7 +148,9 @@ class CrawlWorker < ApplicationController
         end
         p "id:"+value["id"].to_s
         conn2.headers["Content-Type"] = "application/json"
-        res = conn2.delete("/api/v1/sites/"+value["id"].to_s)
+        @obj["title"] = ""
+        res = conn2.put("/api/v1/sites/"+value["id"].to_s, @obj.to_json)
+        # res = conn2.delete("/api/v1/sites/"+value["id"].to_s)
         return
       elsif response.status == 200 then
         if response.headers['content-type'].include?("json") == false then
@@ -154,7 +163,9 @@ class CrawlWorker < ApplicationController
               builder.token_auth ENV["SERVER_TOKEN"]                  
             end 
             conn2.headers["Content-Type"] = "application/json"
-            res = conn2.delete("/api/v1/sites/"+value["id"].to_s)
+            @obj["title"] = ""
+            res = conn2.put("/api/v1/sites/"+value["id"].to_s, @obj.to_json)
+            # res = conn2.delete("/api/v1/sites/"+value["id"].to_s)
         else  
           hash2 = JSON.parse(response.body)
           uri = URI.parse(hash2["links"][0]["href"])
